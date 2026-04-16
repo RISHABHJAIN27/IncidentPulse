@@ -15,7 +15,7 @@ class IncidentStatus(str, Enum):
     monitoring = "monitoring"
     resolved = "resolved"
 
-class Incident(BaseModel):
+class IncidentCreate(BaseModel):
     title = str   
     severity = Severitylevel
 
@@ -28,3 +28,4 @@ class Incident(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 class IncidentUpdate(BaseModel):
     status: IncidentStatus
+
