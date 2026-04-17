@@ -16,6 +16,12 @@ app = FastAPI(
 def startup():
     # We'll wire up the real database here in the next step.
     # For now this just confirms the app booted cleanly.
+
+    # Deserialise config
+    # Inject dependencies from the config to DB
+    # initialise DB
+
+    print("Environment:", os.getenv("ENVIRONMENT"))
     print("Incident Pulse is up and running.")
 
 
