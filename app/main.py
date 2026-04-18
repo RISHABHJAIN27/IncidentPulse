@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from app.models import Incident, IncidentCreate, IncidentUpdate
+from app import database
 
 app = FastAPI(
     title="Incident Pulse",
@@ -9,19 +10,14 @@ app = FastAPI(
 
 
 # ---------------------------------------------------------------------------
-# Startup
+# Startup — runs once when the app boots up
 # ---------------------------------------------------------------------------
 
 @app.on_event("startup")
 def startup():
-    # We'll wire up the real database here in the next step.
-    # For now this just confirms the app booted cleanly.
-
-    # Deserialise config
-    # Inject dependencies from the config to DB
-    # initialise DB
-
-    print("Environment:", os.getenv("ENVIRONMENT"))
+    # Create the DynamoDB table locally if it doesn't exist yet.
+    # In production, Terraform handles this — not us.
+    database.create_table_if_not_exists()
     print("Incident Pulse is up and running.")
 
 
@@ -40,35 +36,30 @@ def health_check():
 
 @app.post("/incidents", status_code=201)
 def create_incident(data: IncidentCreate):
-    # data is automatically validated by Pydantic against IncidentCreate model.
-    # If title or severity is missing, FastAPI rejects the request before we
-    # even get here.
-    incident = Incident(title=data.title, severity=data.severity)
-    # TODO: save to database in next step
+    incident = database.create_incident(data)
     return incident
 
 
 @app.get("/incidents")
 def list_incidents(status: str = None):
-    # 'status' is an optional query parameter — e.g. /incidents?status=resolved
-    # If not provided it defaults to None and we return everything.
-    # TODO: fetch from database in next step
-    return []
+    incidents = database.get_all_incidents(status_filter=status)
+    return incidents
 
 
 @app.get("/incidents/{incident_id}")
 def get_incident(incident_id: str):
-    # incident_id is pulled from the URL path automatically by FastAPI.
-    # TODO: fetch from database in next step
-    # Returning 404 when an incident isn't found is the correct HTTP behaviour.
-    raise HTTPException(status_code=404, detail="Incident not found")
+    incident = database.get_incident(incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return incident
 
 
 @app.patch("/incidents/{incident_id}")
 def update_incident(incident_id: str, data: IncidentUpdate):
-    # Only the status field can be updated — IncidentUpdate enforces this.
-    # TODO: update in database in next step
-    raise HTTPException(status_code=404, detail="Incident not found")
+    incident = database.update_incident(incident_id, data)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return incident
 
 
 # ---------------------------------------------------------------------------
@@ -77,11 +68,27 @@ def update_incident(incident_id: str, data: IncidentUpdate):
 
 @app.get("/status")
 def system_status():
-    # Returns a high-level summary of system health.
-    # A real status page (like statuspage.io) shows something like this.
-    # TODO: calculate from real incidents in next step
+    all_incidents = database.get_all_incidents()
+
+    # Count only incidents that are not yet resolved
+    active = [i for i in all_incidents if i.status != "resolved"]
+    active_count = len(active)
+
+    # If any active incident is critical — that's a major outage
+    has_critical = any(i.severity == "critical" for i in active)
+
+    if active_count == 0:
+        overall = "operational"
+        message = "All systems normal"
+    elif has_critical or active_count >= 3:
+        overall = "major_outage"
+        message = f"{active_count} active incident(s) — major outage"
+    else:
+        overall = "degraded"
+        message = f"{active_count} active incident(s) — degraded performance"
+
     return {
-        "status": "operational",
-        "active_incidents": 0,
-        "message": "All systems normal",
+        "status": overall,
+        "active_incidents": active_count,
+        "message": message,
     }
