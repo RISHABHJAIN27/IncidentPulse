@@ -1,6 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from app.models import Incident, IncidentCreate, IncidentUpdate
+from app.config import TABLE_NAME
 from app import database
+from time import perf_counter
+import os
 
 app = FastAPI(
     title="Incident Pulse",
@@ -15,10 +18,24 @@ app = FastAPI(
 
 @app.on_event("startup")
 def startup():
-    # Create the DynamoDB table locally if it doesn't exist yet.
-    # In production, Terraform handles this — not us.
-    database.create_table_if_not_exists()
+    # Create the DynamoDB resource ONCE and store it in app.state.
+    # Every request will reuse this same object — no recreating per request.
+    dynamodb = database.init_dynamodb()
+    app.state.table = dynamodb.Table(TABLE_NAME)
+
+    # Create the local table if it doesn't exist yet.
+    database.create_table_if_not_exists(dynamodb)
     print("Incident Pulse is up and running.")
+
+
+# ---------------------------------------------------------------------------
+# Dependency — provides the shared table to every endpoint that needs it
+# ---------------------------------------------------------------------------
+
+def get_table():
+    # FastAPI calls this automatically for any endpoint that uses Depends(get_table).
+    # It simply returns the shared table object from app.state.
+    return app.state.table
 
 
 # ---------------------------------------------------------------------------
@@ -35,28 +52,32 @@ def health_check():
 # ---------------------------------------------------------------------------
 
 @app.post("/incidents", status_code=201)
-def create_incident(data: IncidentCreate):
-    incident = database.create_incident(data)
+def create_incident(data: IncidentCreate, table=Depends(get_table)):
+    t0 = perf_counter()
+    incident = database.create_incident(table, data)
+    t1 = perf_counter()
+
+    print(f"[timing] POST /incidents total={(t1 - t0)*1000:.2f}ms")
     return incident
 
 
 @app.get("/incidents")
-def list_incidents(status: str = None):
-    incidents = database.get_all_incidents(status_filter=status)
+def list_incidents(status: str = None, table=Depends(get_table)):
+    incidents = database.get_all_incidents(table, status_filter=status)
     return incidents
 
 
 @app.get("/incidents/{incident_id}")
-def get_incident(incident_id: str):
-    incident = database.get_incident(incident_id)
+def get_incident(incident_id: str, table=Depends(get_table)):
+    incident = database.get_incident(table, incident_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     return incident
 
 
 @app.patch("/incidents/{incident_id}")
-def update_incident(incident_id: str, data: IncidentUpdate):
-    incident = database.update_incident(incident_id, data)
+def update_incident(incident_id: str, data: IncidentUpdate, table=Depends(get_table)):
+    incident = database.update_incident(table, incident_id, data)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
     return incident
@@ -67,8 +88,8 @@ def update_incident(incident_id: str, data: IncidentUpdate):
 # ---------------------------------------------------------------------------
 
 @app.get("/status")
-def system_status():
-    all_incidents = database.get_all_incidents()
+def system_status(table=Depends(get_table)):
+    all_incidents = database.get_all_incidents(table)
 
     # Count only incidents that are not yet resolved
     active = [i for i in all_incidents if i.status != "resolved"]

@@ -4,38 +4,27 @@ from datetime import datetime
 
 from app.models import Incident, IncidentCreate, IncidentUpdate
 from app.config import ENVIRONMENT, TABLE_NAME
+from time import perf_counter
 
 
-def get_dynamodb_table():
-    # Locally we point to DynamoDB running in Docker.
-    # In production on AWS, boto3 picks up credentials automatically.
+def init_dynamodb():
+    # Called ONCE at startup — creates and returns the boto3 resource.
+    # The result is stored in app.state and reused for every request.
     if ENVIRONMENT == "local":
-        print("local env.. connecting to db")
-        dynamodb = boto3.resource(
+        return boto3.resource(
             "dynamodb",
             region_name="us-east-1",
             endpoint_url="http://localhost:8001",
             aws_access_key_id="local",
             aws_secret_access_key="local",
         )
-    else:
-        dynamodb = boto3.resource("dynamodb")
-
-    return dynamodb.Table(TABLE_NAME)
+    return boto3.resource("dynamodb")
 
 
-def create_table_if_not_exists():
+def create_table_if_not_exists(dynamodb):
     # This only runs locally — in production, Terraform creates the table.
     if ENVIRONMENT != "local":
         return
-
-    dynamodb = boto3.resource(
-        "dynamodb",
-        region_name="us-east-1",
-        endpoint_url="http://localhost:8001",
-        aws_access_key_id="local",
-        aws_secret_access_key="local",
-    )
 
     existing = [t.name for t in dynamodb.tables.all()]
     if TABLE_NAME in existing:
@@ -54,11 +43,12 @@ def create_table_if_not_exists():
     print(f"Table '{TABLE_NAME}' created.")
 
 
-def create_incident(data: IncidentCreate) -> Incident:
-    table = get_dynamodb_table()
-
+def create_incident(table, data: IncidentCreate) -> Incident:
     # Build the full incident — id, status, timestamps are auto generated
+    t0 = perf_counter()
     incident = Incident(title=data.title, severity=data.severity)
+    t1 = perf_counter()
+
 
     table.put_item(Item={
         "id": incident.id,
@@ -68,13 +58,20 @@ def create_incident(data: IncidentCreate) -> Incident:
         "created_at": incident.created_at.isoformat(),
         "updated_at": incident.updated_at.isoformat(),
     })
+    t2 = perf_counter()
+
+
+    print(
+        "[timing] create_incident "
+        f"model={(t1 - t0)*1000:.2f}ms "
+        f"put_item={(t2 - t1)*1000:.2f}ms "
+        f"total={(t2 - t0)*1000:.2f}ms"
+    )
 
     return incident
 
 
-def get_all_incidents(status_filter: str = None) -> list[Incident]:
-    table = get_dynamodb_table()
-
+def get_all_incidents(table, status_filter: str = None) -> list[Incident]:
     # If a status filter is passed, only return matching incidents
     if status_filter:
         response = table.scan(
@@ -90,9 +87,7 @@ def get_all_incidents(status_filter: str = None) -> list[Incident]:
     return incidents
 
 
-def get_incident(incident_id: str) -> Incident | None:
-    table = get_dynamodb_table()
-
+def get_incident(table, incident_id: str) -> Incident | None:
     response = table.get_item(Key={"id": incident_id})
     item = response.get("Item")
 
@@ -102,11 +97,9 @@ def get_incident(incident_id: str) -> Incident | None:
     return _item_to_incident(item)
 
 
-def update_incident(incident_id: str, data: IncidentUpdate) -> Incident | None:
-    table = get_dynamodb_table()
-
+def update_incident(table, incident_id: str, data: IncidentUpdate) -> Incident | None:
     # Make sure the incident actually exists before trying to update
-    existing = get_incident(incident_id)
+    existing = get_incident(table, incident_id)
     if not existing:
         return None
 
