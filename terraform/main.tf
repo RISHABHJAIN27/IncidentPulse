@@ -1,0 +1,48 @@
+module "networking" {
+  source = "./modules/networking"
+
+  project_name = var.project_name
+  environment  = var.environment
+  vpc_cidr     = var.vpc_cidr
+}
+module "ecr" {
+  source = "./modules/ecr"
+
+  project_name = var.project_name
+  aws_region   = var.aws_region
+  environment  = var.environment
+}
+module "iam" {
+  source = "./modules/iam"
+
+  project_name = var.project_name
+  environment  = var.environment
+ }
+module "alb" {
+  source = "./modules/alb"
+
+  project_name = var.project_name
+  environment  = var.environment
+  vpc_cidr     = var.vpc_cidr
+}
+module "dynamodb" {
+  source = "./modules/dynamodb"
+  project_name = var.project_name
+  aws_region   = var.aws_region
+  environment  = var.environment
+}
+module "ecs" {
+  source = "./modules/ecs"
+
+  project_name = var.project_name
+  aws_region   = var.aws_region
+  environment  = var.environment
+  vpc_cidr     = var.vpc_cidr
+}
+module "monitoring" {
+  source = "./modules/monitoring"
+
+  project_name = var.project_name
+  aws_region   = var.aws_region
+  environment  = var.environment
+}
