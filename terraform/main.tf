@@ -16,7 +16,6 @@ module "ecr" {
 }
 module "iam" {
   source = "./modules/iam"
-
   project_name = var.project_name
   environment  = var.environment
  }
@@ -26,6 +25,8 @@ module "alb" {
   project_name = var.project_name
   environment  = var.environment
   vpc_cidr     = var.vpc_cidr
+  vpc_id       = module.networking.vpc_id
+  public_subnet_ids =module.networking.public_subnet_ids
 }
 module "dynamodb" {
   source = "./modules/dynamodb"
