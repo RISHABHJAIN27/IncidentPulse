@@ -41,6 +41,11 @@ module "ecs" {
   aws_region   = var.aws_region
   environment  = var.environment
   vpc_cidr     = var.vpc_cidr
+  alb_security_group_id = module.alb.alb_security_group_id
+  vpc_id       = module.networking.vpc_id
+  repository_url = module.ecr.repository_url
+  task_execution_arn = module.iam.task_execution_arn
+  task_arn = module.iam.task_arn
 }
 module "monitoring" {
   source = "./modules/monitoring"
