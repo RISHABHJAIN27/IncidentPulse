@@ -64,7 +64,7 @@ resource "aws_iam_role_policy" "task_dynamodb" {
           "dynamodb:Scan",
           ]
           # TODO: Restrict to specific table ARN once DynamoDB module is built
-        Resource = "*"    
+        Resource = var.dynamodb_table_arn    
       }
     ]
   })

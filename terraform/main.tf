@@ -18,6 +18,7 @@ module "iam" {
   source = "./modules/iam"
   project_name = var.project_name
   environment  = var.environment
+  dynamodb_table_arn = module.dynamodb.dynamodb_table_arn
  }
 module "alb" {
   source = "./modules/alb"
