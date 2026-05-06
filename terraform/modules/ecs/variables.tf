@@ -28,3 +28,9 @@ variable "task_execution_arn" {
 variable "task_arn" {
   type = string
 }
+variable "target_group_arn"{
+  type = string
+}
+variable "private_subnet_ids"{
+type = list(string)
+}

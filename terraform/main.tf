@@ -26,7 +26,7 @@ module "alb" {
   environment  = var.environment
   vpc_cidr     = var.vpc_cidr
   vpc_id       = module.networking.vpc_id
-  public_subnet_ids =module.networking.public_subnet_ids
+  public_subnet_ids = module.networking.public_subnet_ids
 }
 module "dynamodb" {
   source = "./modules/dynamodb"
@@ -46,6 +46,8 @@ module "ecs" {
   repository_url = module.ecr.repository_url
   task_execution_arn = module.iam.task_execution_arn
   task_arn = module.iam.task_arn
+  target_group_arn = module.alb.target_group_arn
+  private_subnet_ids = module.networking.private_subnet_ids
 }
 module "monitoring" {
   source = "./modules/monitoring"
@@ -53,4 +55,6 @@ module "monitoring" {
   project_name = var.project_name
   aws_region   = var.aws_region
   environment  = var.environment
+  ecs_cluster_name = module.ecs.ecs_cluster_name
+  ecs_service_name = module.ecs.ecs_service_name
 }
