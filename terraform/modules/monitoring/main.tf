@@ -12,9 +12,18 @@ resource "aws_cloudwatch_metric_alarm" "ecs_no_running_tasks" {
   statistic           = "Average"
   threshold           = 1
   alarm_description   = "The service has no running tasks, which means the app should be crashed"
-
+  alarm_actions       = [aws_sns_topic.alerts.arn]
   dimensions = {
     ClusterName = var.ecs_cluster_name
     ServiceName = var.ecs_service_name
   }
+}
+resource "aws_sns_topic" "alerts" {
+  name = "${var.project_name}-alerts"
+}
+
+resource "aws_sns_topic_subscription" "email" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
 }
