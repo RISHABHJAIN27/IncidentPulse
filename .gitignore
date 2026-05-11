@@ -9,3 +9,4 @@ __pycache__/
 *.tfstate.backup
 terraform.tfvars
 progress.md
+project-plan.md
