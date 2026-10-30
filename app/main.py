@@ -39,8 +39,12 @@ setup_tracing(app)
 # Health
 # ---------------------------------------------------------------------------
 
+# /health and /metrics are async on purpose. Sync handlers run in a shared
+# 40-thread pool; when DynamoDB hangs, blocked requests fill that pool and a
+# sync /health or /metrics stops answering. The ALB would then kill healthy
+# tasks and Prometheus would go blind. Found by chaos/dynamodb-brownout.json.
 @app.get("/health")
-def health_check():
+async def health_check():
     # Liveness: the process is up. Deliberately does not touch DynamoDB.
     return {"status": "healthy"}
 
@@ -54,7 +58,7 @@ def readiness_check():
 
 
 @app.get("/metrics", include_in_schema=False)
-def metrics():
+async def metrics():
     # Prometheus scrape endpoint.
     return metrics_response()
 

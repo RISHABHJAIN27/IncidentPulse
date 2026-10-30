@@ -1,3 +1,4 @@
+import inspect
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -80,3 +81,12 @@ def test_health_does_not_depend_on_dynamodb():
     with patch("app.main.database.check_ready", side_effect=AssertionError("must not be called")):
         response = client.get("/health")
     assert response.status_code == 200
+
+
+def test_liveness_and_metrics_do_not_wait_for_the_request_thread_pool():
+    # Sync handlers share one thread pool with the DynamoDB calls. In the brownout
+    # experiment that pool filled up, /health timed out and /metrics could not be
+    # scraped, so the SLO alerts went blind. These two must stay async.
+    endpoints = {route.path: route.endpoint for route in app.routes if hasattr(route, "endpoint")}
+    assert inspect.iscoroutinefunction(endpoints["/health"])
+    assert inspect.iscoroutinefunction(endpoints["/metrics"])

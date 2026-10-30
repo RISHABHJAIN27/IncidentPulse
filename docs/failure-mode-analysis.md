@@ -16,6 +16,7 @@ What can break in Incident Pulse, what users would see, how we find out, and wha
 | 10 | Telemetry | OTel Collector or Jaeger down | None; traces are dropped, requests unaffected | Missing traces in Jaeger | Batch exporter drops spans rather than blocking requests | Accepted risk |
 | 11 | Triage agent | Ollama (LLM) unavailable | Triage notes fall back to runbook-only text | `fallback_used: true` in each triage result | Rule-based fallback built from the retrieved runbook | `triage/tests/test_agent.py` |
 | 12 | Triage agent | LLM suggests a destructive or invented action | Wrong guidance during an incident | Guardrail rejects the draft (logged, traced in LangFuse) | Guardrails: no destructive commands, must cite a retrieved runbook, severity must be valid; one retry, then fallback | `triage/tests/test_guardrails.py`, `evals/promptfooconfig.yaml` |
+| 13 | App thread pool | DynamoDB hangs, blocked requests fill the request thread pool, and synchronous `/health` and `/metrics` stop answering | The ALB would mark healthy tasks dead and ECS would restart them in a loop; Prometheus could not scrape, so the SLO error ratio read 0% while every request failed and only a misleading `ReplicaDown` fired | Found by the brownout experiment | `/health` and `/metrics` are async handlers on the event loop, independent of the request thread pool | `chaos/dynamodb-brownout.json`, `tests/test_observability.py` |
 
 ## How to use this
 
