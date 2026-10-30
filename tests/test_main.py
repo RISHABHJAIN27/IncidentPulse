@@ -207,3 +207,15 @@ def test_system_status_excludes_resolved():
     data = response.json()
     assert data["status"] == "operational"
     assert data["active_incidents"] == 0
+
+def test_oversized_incident_id_is_a_client_error_not_a_500():
+    # Seen on a real run: an ID made of 189 IDs joined together reached DynamoDB,
+    # which rejected the key, and the API returned 500 (burning the SLO).
+    huge_id = "a" * 5000
+    with patch("app.main.database.get_incident", side_effect=AssertionError("must not reach DynamoDB")):
+        get = client.get(f"/incidents/{huge_id}")
+    with patch("app.main.database.update_incident", side_effect=AssertionError("must not reach DynamoDB")):
+        patch_resp = client.patch(f"/incidents/{huge_id}", json={"status": "resolved"})
+
+    assert get.status_code == 422
+    assert patch_resp.status_code == 422
