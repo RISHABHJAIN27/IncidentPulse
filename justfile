@@ -20,13 +20,13 @@ down:
     docker compose -f docker-compose.yml -f observability/langfuse/docker-compose.langfuse.yml down
 
 smoke:
-    docker compose run --rm k6 run /scripts/smoke.js
+    docker compose run --rm --no-deps k6 run /scripts/smoke.js
 
 load:
-    docker compose run --rm k6 run /scripts/load.js
+    docker compose run --rm --no-deps k6 run /scripts/load.js
 
 stress:
-    docker compose run --rm k6 run /scripts/stress.js
+    docker compose run --rm --no-deps k6 run /scripts/stress.js
 
 chaos-replica:
     chaos run chaos/replica-loss.json

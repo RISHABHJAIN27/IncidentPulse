@@ -37,6 +37,7 @@
             "compose",
             "run",
             "--rm",
+            "--no-deps",
             "-e",
             "DURATION=20s",
             "-e",

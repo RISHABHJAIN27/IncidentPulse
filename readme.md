@@ -246,9 +246,9 @@ docker compose up -d --build
 ### Load testing
 
 ```bash
-docker compose run --rm k6 run /scripts/smoke.js    # 30 s, fails if the SLOs would break
-docker compose run --rm k6 run /scripts/load.js     # ramp to 25 users, per-endpoint thresholds
-docker compose run --rm k6 run /scripts/stress.js   # step up to 200 req/s to find the limit
+docker compose run --rm --no-deps k6 run /scripts/smoke.js    # 30 s, fails if the SLOs would break
+docker compose run --rm --no-deps k6 run /scripts/load.js     # ramp to 25 users, per-endpoint thresholds
+docker compose run --rm --no-deps k6 run /scripts/stress.js   # step up to 200 req/s to find the limit
 ```
 
 ### Chaos experiments
@@ -265,7 +265,7 @@ Run them from the repo root with the lab up. Results are written to `journal.jso
 
 ```bash
 # Terminal 1: steady traffic for 6 minutes
-docker compose run --rm -e DURATION=6m -e RATE=10 k6 run --no-thresholds /scripts/chaos-background.js
+docker compose run --rm --no-deps -e DURATION=6m -e RATE=10 k6 run --no-thresholds /scripts/chaos-background.js
 
 # Terminal 2: DynamoDB stops answering
 docker pause incidentpulse-dynamodb

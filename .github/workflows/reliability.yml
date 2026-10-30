@@ -5,8 +5,6 @@ name: Reliability checks
 
 on:
   pull_request:
-  push:
-    branches-ignore: [main]
   workflow_dispatch:
 
 permissions:
@@ -57,7 +55,7 @@ jobs:
       - name: Start the app tier (2 replicas behind the load balancer)
         run: docker compose up -d --build --wait --wait-timeout 180 dynamodb-local app-1 app-2 lb
       - name: k6 smoke test with SLO thresholds
-        run: docker compose run --rm k6 run /scripts/smoke.js
+        run: docker compose run --rm --no-deps k6 run /scripts/smoke.js
       - name: App logs
         if: failure()
         run: docker compose logs --tail 200 app-1 app-2 lb

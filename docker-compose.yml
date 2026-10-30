@@ -1,7 +1,7 @@
 # Incident Pulse: local reliability lab
 #
 #   docker compose up -d --build                      # app + observability + AI triage
-#   docker compose run --rm k6 run /scripts/load.js   # load test against the SLOs
+#   docker compose run --rm --no-deps k6 run /scripts/load.js   # load test against the SLOs
 #   chaos run chaos/replica-loss.json                 # chaos experiment
 #
 # Add self-hosted LangFuse (LLM tracing for the triage agent):
@@ -13,7 +13,6 @@
 name: incident-pulse
 
 x-app: &app
-  build: .
   image: incident-pulse:local
   restart: unless-stopped
   environment:
@@ -48,11 +47,15 @@ services:
   # Two replicas behind a load balancer, like two ECS tasks behind the ALB.
   app-1:
     <<: *app
+    build: .
     container_name: incidentpulse-app-1
     hostname: app-1
 
   app-2:
     <<: *app
+    # Same image as app-1, built once. Two builds of one tag made compose see the
+    # containers as out of date and recreate them mid-test.
+    pull_policy: never
     container_name: incidentpulse-app-2
     hostname: app-2
 
