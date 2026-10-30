@@ -384,10 +384,10 @@ terraform destroy
 
 ## CI/CD Pipeline
 
-The GitHub Actions workflow (`.github/workflows/deploy.yml`) runs on every push to `main`:
+The GitHub Actions workflow (`.github/workflows/deploy.yml`) is run manually from the Actions tab ("Run workflow") once the AWS stack is up, because the stack is torn down between demos to keep costs at $0:
 
 ```
-Push to main → Checkout code → Configure AWS → Login ECR → Build & Push image → Update ECS
+Run workflow → Checkout code → Configure AWS → Login ECR → Build & Push image → Update ECS
 ```
 
 The reliability workflow (`.github/workflows/reliability.yml`) runs on every pull request:
