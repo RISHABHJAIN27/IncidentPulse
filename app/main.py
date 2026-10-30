@@ -1,7 +1,11 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from typing import Annotated
+
+from fastapi import FastAPI, HTTPException, Path
+from fastapi.responses import JSONResponse
 from app.models import Incident, IncidentCreate, IncidentUpdate
 from app import database
+from app.observability import MetricsMiddleware, metrics_response, setup_tracing
 
 
 # ---------------------------------------------------------------------------
@@ -27,19 +31,48 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Request count and latency for every route (the SLI source), plus OpenTelemetry
+# traces when OTEL_ENABLED=true.
+app.add_middleware(MetricsMiddleware)
+setup_tracing(app)
+
 
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
 
+# /health and /metrics are async on purpose. Sync handlers run in a shared
+# 40-thread pool; when DynamoDB hangs, blocked requests fill that pool and a
+# sync /health or /metrics stops answering. The ALB would then kill healthy
+# tasks and Prometheus would go blind. Found by chaos/dynamodb-brownout.json.
 @app.get("/health")
-def health_check():
+async def health_check():
+    # Liveness: the process is up. Deliberately does not touch DynamoDB.
     return {"status": "healthy"}
+
+
+@app.get("/ready")
+def readiness_check():
+    # Readiness: this instance can reach its database and serve real traffic.
+    if database.check_ready():
+        return {"status": "ready"}
+    return JSONResponse(status_code=503, content={"status": "not_ready", "reason": "dynamodb_unreachable"})
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics():
+    # Prometheus scrape endpoint.
+    return metrics_response()
 
 
 # ---------------------------------------------------------------------------
 # Incidents
 # ---------------------------------------------------------------------------
+
+# IDs are UUIDs (36 characters). Without a limit, an oversized ID reached DynamoDB,
+# which rejects keys over 2048 bytes, and the API answered 500: a client mistake
+# counted against the availability SLO. Now it is a 422.
+IncidentId = Annotated[str, Path(max_length=64)]
 
 @app.post("/incidents", status_code=201)
 def create_incident(data: IncidentCreate):
@@ -54,7 +87,7 @@ def list_incidents(status: str = None):
 
 
 @app.get("/incidents/{incident_id}")
-def get_incident(incident_id: str):
+def get_incident(incident_id: IncidentId):
     incident = database.get_incident(incident_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
@@ -62,7 +95,7 @@ def get_incident(incident_id: str):
 
 
 @app.patch("/incidents/{incident_id}")
-def update_incident(incident_id: str, data: IncidentUpdate):
+def update_incident(incident_id: IncidentId, data: IncidentUpdate):
     incident = database.update_incident(incident_id, data)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")

@@ -1,0 +1,6 @@
+# Used instead of the root .dockerignore when building triage/Dockerfile.
+*
+!triage/requirements.txt
+!triage/triage_agent/
+!runbooks/
+**/__pycache__

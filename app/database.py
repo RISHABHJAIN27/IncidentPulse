@@ -1,5 +1,7 @@
 import boto3
 from boto3.dynamodb.conditions import Attr
+from botocore.config import Config
+from botocore.exceptions import ClientError
 from datetime import datetime
 
 from app.models import Incident, IncidentCreate, IncidentUpdate
@@ -10,6 +12,16 @@ from app.config import (
     DYNAMODB_ENDPOINT,
     DYNAMODB_LOCAL_KEY,
     DYNAMODB_LOCAL_SECRET,
+)
+
+
+# Bounded timeouts and retries: if DynamoDB is slow or unreachable, requests fail
+# fast with a 5xx (which the SLO alerts catch) instead of hanging for a minute.
+# See docs/failure-mode-analysis.md.
+BOTO_CONFIG = Config(
+    connect_timeout=2,
+    read_timeout=5,
+    retries={"max_attempts": 3, "mode": "standard"},
 )
 
 
@@ -24,12 +36,23 @@ def _get_dynamodb_resource():
             endpoint_url=DYNAMODB_ENDPOINT,
             aws_access_key_id=DYNAMODB_LOCAL_KEY,
             aws_secret_access_key=DYNAMODB_LOCAL_SECRET,
+            config=BOTO_CONFIG,
         )
-    return boto3.resource("dynamodb", region_name=AWS_REGION)
+    return boto3.resource("dynamodb", region_name=AWS_REGION, config=BOTO_CONFIG)
 
 
 def get_dynamodb_table():
     return _get_dynamodb_resource().Table(TABLE_NAME)
+
+
+def check_ready() -> bool:
+    # Readiness probe: can this instance actually reach the incidents table?
+    # /health only proves the process is alive; this proves it can do its job.
+    try:
+        _get_dynamodb_resource().meta.client.describe_table(TableName=TABLE_NAME)
+        return True
+    except Exception:
+        return False
 
 
 def create_table_if_not_exists():
@@ -43,17 +66,23 @@ def create_table_if_not_exists():
     if TABLE_NAME in existing:
         return
 
-    dynamodb.create_table(
-        TableName=TABLE_NAME,
-        KeySchema=[
-            {"AttributeName": "id", "KeyType": "HASH"}
-        ],
-        AttributeDefinitions=[
-            {"AttributeName": "id", "AttributeType": "S"}
-        ],
-        BillingMode="PAY_PER_REQUEST",
-    )
-    print(f"Table '{TABLE_NAME}' created.")
+    try:
+        dynamodb.create_table(
+            TableName=TABLE_NAME,
+            KeySchema=[
+                {"AttributeName": "id", "KeyType": "HASH"}
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": "id", "AttributeType": "S"}
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        print(f"Table '{TABLE_NAME}' created.")
+    except ClientError as err:
+        # Two replicas starting together can race to create the table.
+        # Losing that race is fine: the table exists either way.
+        if err.response["Error"]["Code"] != "ResourceInUseException":
+            raise
 
 
 def create_incident(data: IncidentCreate) -> Incident:

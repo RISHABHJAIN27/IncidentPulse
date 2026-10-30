@@ -10,3 +10,7 @@ __pycache__/
 terraform.tfvars
 progress.md
 project-plan.md
+# Reliability lab outputs
+journal.json
+chaostoolkit.log
+.promptfoo/
