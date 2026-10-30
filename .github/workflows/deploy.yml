@@ -1,9 +1,9 @@
 # CI/CD pipeline for Incident Pulse
 name: Deploy to AWS
+# Manual: the AWS stack is torn down between demos to keep costs at $0.
+# After `terraform apply`, run this from the Actions tab ("Run workflow").
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 jobs:
   deploy:
     name:  Build and Deploy to AWS
