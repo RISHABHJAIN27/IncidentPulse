@@ -39,3 +39,16 @@ def test_falls_back_to_keyword_search_when_embeddings_fail(chunks):
     results = retrieve_for_alert(retriever, alert)
     assert retriever.last_mode == "keyword"
     assert results[0].source == "replica-down.md"
+
+
+def test_vector_search_works_with_an_embedding_model(chunks):
+    # Uses a deterministic fake embedding model, so this exercises the real vector
+    # store code path (similarity search needs numpy) without Ollama running.
+    from langchain_core.embeddings import DeterministicFakeEmbedding
+
+    retriever = RunbookRetriever(chunks, lambda: DeterministicFakeEmbedding(size=64))
+    results = retriever.search("DynamoDB timeouts", k=3)
+
+    assert retriever.last_mode == "vector"
+    assert len(results) == 3
+    assert {c.source for c in results} <= {c.source for c in chunks}
