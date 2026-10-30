@@ -25,11 +25,29 @@ class IncidentPublisher:
         with self._lock:
             return alert_key in self._incidents or alert_key in self._pending_open
 
+    def _find_open_incident(self, title: str) -> str | None:
+        resp = self.client.get("/incidents", params={"status": "investigating"})
+        resp.raise_for_status()
+        incidents = resp.json()
+        for incident in incidents if isinstance(incidents, list) else []:
+            if isinstance(incident, dict) and incident.get("title") == title:
+                return incident["id"]
+        return None
+
     def open(self, alert_key: str, note: dict) -> str | None:
+        with self._lock:
+            is_retry = alert_key in self._pending_open
         try:
-            resp = self.client.post("/incidents", json={"title": note["title"], "severity": note["severity"]})
-            resp.raise_for_status()
-            incident_id = resp.json()["id"]
+            incident_id = None
+            if is_retry:
+                # POST is not idempotent. A create that "failed" with a client timeout
+                # may still have been written once the database recovered, so adopt
+                # that incident instead of creating a duplicate (seen in the brownout run).
+                incident_id = self._find_open_incident(note["title"])
+            if incident_id is None:
+                resp = self.client.post("/incidents", json={"title": note["title"], "severity": note["severity"]})
+                resp.raise_for_status()
+                incident_id = resp.json()["id"]
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             log.warning("could not open incident, will retry: %s", exc)
             with self._lock:

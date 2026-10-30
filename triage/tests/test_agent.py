@@ -112,6 +112,8 @@ def test_publish_failure_is_queued_and_retried(good_note):
             return httpx.Response(500, json={"detail": "dynamodb down"})
         if request.method == "POST":
             return httpx.Response(201, json={"id": "inc-9"})
+        if request.method == "GET":
+            return httpx.Response(200, json=[])  # nothing was written while it was down
         return httpx.Response(200, json={"id": "inc-9", "status": "resolved"})
 
     publisher = make_publisher(handler)
@@ -129,3 +131,27 @@ def test_resolving_an_unpublished_incident_drops_it(good_note):
     publisher.open("alert-2", good_note)
     assert publisher.resolve("alert-2") is True
     assert publisher.pending_count() == 0
+
+
+def test_retry_after_a_timed_out_create_does_not_duplicate_the_incident(good_note):
+    # The brownout run: the POST timed out on our side, but the status page wrote
+    # the incident once its database recovered. Retrying must adopt it, not re-create it.
+    stored = []
+    timed_out = {"value": True}
+
+    def handler(request):
+        if request.method == "POST":
+            stored.append({"id": f"inc-{len(stored) + 1}", "title": json.loads(request.content)["title"]})
+            if timed_out["value"]:
+                timed_out["value"] = False
+                raise httpx.ReadTimeout("client gave up", request=request)
+            return httpx.Response(201, json=stored[-1])
+        return httpx.Response(200, json=stored)
+
+    publisher = make_publisher(handler)
+    assert publisher.open("alert-3", good_note) is None   # timed out, queued
+    publisher.retry_pending()
+
+    assert len(stored) == 1                                # no second POST
+    assert publisher.pending_count() == 0
+    assert publisher._incidents["alert-3"] == "inc-1"      # adopted the one that was written
