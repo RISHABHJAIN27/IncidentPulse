@@ -129,6 +129,46 @@ flowchart LR
 ### CI/CD Pipeline — GitHub Actions
 ![CI/CD Pipeline](screenshots/ci_cd_pipeline.jpg)
 
+### Reliability Lab: a DynamoDB outage, end to end
+
+Recorded on a Windows laptop (Docker Desktop and Ollama running `llama3.2:3b`). DynamoDB was frozen with `docker pause` under steady k6 traffic, then unfrozen.
+
+**1. The SLOs detect it.** Error ratio and latency spike, burn rate reaches 80x (page line: 14.4x), and both fast-burn pages fire. The 30-day figures look extreme only because the lab has about an hour of history.
+
+![Grafana SLO dashboard during the outage](screenshots/reliability-grafana-slo-dashboard.png)
+
+![Prometheus SLO alerts firing](screenshots/reliability-prometheus-alerts.png)
+
+**2. The AI agent triages it.** Alertmanager posts each alert to the agent. It retrieves the matching runbooks (vector search), asks the local LLM for a note, and the note passes the guardrails on the first try. The agent holds the incident while the status page's own database is down, then publishes it.
+
+![Triage agent history](screenshots/reliability-triage-history.png)
+
+```json
+{
+  "alertname": "IncidentPulseAvailabilityBudgetBurnFast",
+  "note": {
+    "severity": "critical",
+    "title": "Incident Pulse Error Budget Burning Fast",
+    "likely_cause": "DynamoDB unreachable, slow or throttling",
+    "first_steps": [
+      "Open Grafana \"Incident Pulse - SLOs\" and check \"Responses by status code\" and \"Requests per second by route\" to see which route is failing.",
+      "Check readiness: `curl http://localhost:8080/ready`. A 503 with `dynamodb_unreachable` points to the database.",
+      "Read recent app errors: `docker compose logs --since 15m app-1 app-2` locally, or `aws logs tail /ecs/incident-pulse --since 15m` on AWS."
+    ],
+    "runbook": "slo-availability-burn.md",
+    "confidence": "high"
+  },
+  "fallback_used": false,
+  "retrieval": "vector",
+  "incident_id": "5a7a8739-9d6c-49b5-a0dc-042e23ba1930",
+  "published": true
+}
+```
+
+**3. The incident is on the status page**, opened by the agent with no human involved:
+
+![Incident opened by the triage agent](screenshots/reliability-incident-opened.png)
+
 ---
 
 ## Project Structure
