@@ -1,0 +1,165 @@
+# Incident Pulse: local reliability lab
+#
+#   docker compose up -d --build                      # app + observability + AI triage
+#   docker compose run --rm k6 run /scripts/load.js   # load test against the SLOs
+#   chaos run chaos/replica-loss.json                 # chaos experiment
+#
+# Add self-hosted LangFuse (LLM tracing for the triage agent):
+#   docker compose -f docker-compose.yml -f observability/langfuse/docker-compose.langfuse.yml up -d --build
+#
+# UIs: API http://localhost:8080/docs   Grafana http://localhost:3000   Prometheus http://localhost:9090
+#      Alertmanager http://localhost:9093   Jaeger http://localhost:16686   Triage agent http://localhost:8090/docs
+
+name: incident-pulse
+
+x-app: &app
+  build: .
+  image: incident-pulse:local
+  restart: unless-stopped
+  environment:
+    ENVIRONMENT: local
+    AWS_REGION: us-east-1
+    TABLE_NAME: incidents
+    DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+    DYNAMODB_LOCAL_KEY: local
+    DYNAMODB_LOCAL_SECRET: local
+    OTEL_ENABLED: "true"
+    OTEL_SERVICE_NAME: incident-pulse
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    OTEL_EXPORTER_OTLP_INSECURE: "true"
+  depends_on:
+    - dynamodb-local
+    - otel-collector
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
+    start_period: 10s
+
+services:
+  # ---------------------------------------------------------------- app tier
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: incidentpulse-dynamodb
+    ports:
+      - "8001:8000"
+
+  # Two replicas behind a load balancer, like two ECS tasks behind the ALB.
+  app-1:
+    <<: *app
+    container_name: incidentpulse-app-1
+    hostname: app-1
+
+  app-2:
+    <<: *app
+    container_name: incidentpulse-app-2
+    hostname: app-2
+
+  lb:
+    image: nginx:1.30-alpine
+    container_name: incidentpulse-lb
+    ports:
+      - "8080:80"
+    volumes:
+      - ./observability/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app-1
+      - app-2
+
+  # ---------------------------------------------------------------- tracing
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.164.0
+    container_name: incidentpulse-otel-collector
+    command: ["--config=/etc/otelcol/config.yml"]
+    volumes:
+      - ./observability/otel-collector/config.yml:/etc/otelcol/config.yml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    container_name: incidentpulse-jaeger
+    ports:
+      - "16686:16686"
+
+  # ---------------------------------------------------------------- metrics, SLOs, alerting
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    container_name: incidentpulse-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.2
+    container_name: incidentpulse-alertmanager
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+
+  grafana:
+    image: grafana/grafana:13.2.5
+    container_name: incidentpulse-grafana
+    environment:
+      # Local lab only: no login, everyone is admin.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/incident-pulse-slo.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  # ---------------------------------------------------------------- AI triage agent
+  # Alertmanager posts every alert here. The agent retrieves the matching runbook
+  # (RAG), asks a local Ollama model for a triage note, checks it against
+  # guardrails, and opens an incident on the status page.
+  triage-bot:
+    build:
+      context: .
+      dockerfile: triage/Dockerfile
+    image: incident-pulse-triage:local
+    container_name: incidentpulse-triage-bot
+    environment:
+      INCIDENTPULSE_URL: http://lb
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      LANGFUSE_ENABLED: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8090:8090"
+    depends_on:
+      - lb
+
+  # ---------------------------------------------------------------- load testing (on demand)
+  k6:
+    image: grafana/k6:2.3.0
+    profiles: ["load"]
+    volumes:
+      - ./loadtest:/scripts:ro
+    environment:
+      BASE_URL: http://lb
+    depends_on:
+      - lb
+
+volumes:
+  prometheus-data:

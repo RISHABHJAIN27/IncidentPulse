@@ -1,0 +1,26 @@
+# Every alert goes to the AI triage agent (triage/), which drafts a triage note
+# from the runbooks and opens an incident on the status page.
+route:
+  receiver: triage-bot
+  group_by: ["alertname", "service", "slo"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Pages skip most of the grouping delay.
+    - matchers: ['severity="page"']
+      receiver: triage-bot
+      group_wait: 10s
+
+receivers:
+  - name: triage-bot
+    webhook_configs:
+      - url: http://triage-bot:8090/alerts
+        send_resolved: true
+
+inhibit_rules:
+  # A fast-burn page already covers the slow-burn ticket for the same SLO,
+  # and "all replicas down" covers "one replica down".
+  - source_matchers: ['severity="page"']
+    target_matchers: ['severity="ticket"']
+    equal: ["service", "slo"]

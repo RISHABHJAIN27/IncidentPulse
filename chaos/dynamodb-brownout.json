@@ -1,0 +1,179 @@
+{
+  "version": "1.0.0",
+  "title": "A DynamoDB brownout is detected by the SLO alerts and the service recovers on its own",
+  "description": "Freezes DynamoDB Local (docker pause), so connections open but nothing answers: the hardest dependency failure to spot. Requests should fail fast thanks to bounded boto3 timeouts instead of hanging, the fast-burn availability page should fire (time-to-detect is recorded in journal.json), liveness should stay green so healthy tasks are not restarted, and the service must be back within SLO after DynamoDB returns. Takes about 8 minutes. Run from the repo root with the stack up: chaos run chaos/dynamodb-brownout.json",
+  "tags": [
+    "incident-pulse",
+    "dependency",
+    "alerting",
+    "detection"
+  ],
+  "contributions": {
+    "availability": "high",
+    "reliability": "high",
+    "observability": "high"
+  },
+  "steady-state-hypothesis": {
+    "title": "Users get fast, successful responses and no SLO page is firing",
+    "probes": [
+      {
+        "type": "probe",
+        "name": "status-page-answers",
+        "tolerance": 200,
+        "provider": {
+          "type": "http",
+          "url": "http://localhost:8080/status",
+          "timeout": 10
+        }
+      },
+      {
+        "type": "probe",
+        "name": "no-availability-page-firing",
+        "tolerance": 0,
+        "provider": {
+          "type": "process",
+          "path": "python",
+          "timeout": 30,
+          "arguments": [
+            "chaos/probes.py",
+            "alert-absent",
+            "IncidentPulseAvailabilityBudgetBurnFast"
+          ]
+        }
+      },
+      {
+        "type": "probe",
+        "name": "client-side-slo-holds-for-20s",
+        "tolerance": 0,
+        "provider": {
+          "type": "process",
+          "path": "docker",
+          "timeout": 120,
+          "arguments": [
+            "compose",
+            "run",
+            "--rm",
+            "-e",
+            "DURATION=20s",
+            "-e",
+            "RATE=20",
+            "k6",
+            "run",
+            "--quiet",
+            "/scripts/chaos-background.js"
+          ]
+        }
+      }
+    ]
+  },
+  "method": [
+    {
+      "type": "action",
+      "name": "freeze-dynamodb",
+      "provider": {
+        "type": "process",
+        "path": "docker",
+        "arguments": [
+          "pause",
+          "incidentpulse-dynamodb"
+        ],
+        "timeout": 30
+      }
+    },
+    {
+      "type": "action",
+      "name": "background-user-traffic",
+      "background": true,
+      "provider": {
+        "type": "process",
+        "path": "docker",
+        "timeout": 600,
+        "arguments": [
+          "compose",
+          "run",
+          "--rm",
+          "-e",
+          "DURATION=7m",
+          "-e",
+          "RATE=10",
+          "k6",
+          "run",
+          "--quiet",
+          "--no-thresholds",
+          "/scripts/chaos-background.js"
+        ]
+      }
+    },
+    {
+      "type": "probe",
+      "name": "liveness-stays-green-during-brownout",
+      "provider": {
+        "type": "http",
+        "url": "http://localhost:8080/health",
+        "timeout": 10
+      },
+      "pauses": {
+        "before": 30
+      }
+    },
+    {
+      "type": "probe",
+      "name": "time-to-page",
+      "provider": {
+        "type": "process",
+        "path": "python",
+        "timeout": 480,
+        "arguments": [
+          "chaos/probes.py",
+          "wait-for-alert",
+          "IncidentPulseAvailabilityBudgetBurnFast",
+          "--timeout",
+          "420"
+        ]
+      }
+    },
+    {
+      "type": "action",
+      "name": "unfreeze-dynamodb",
+      "provider": {
+        "type": "process",
+        "path": "docker",
+        "arguments": [
+          "unpause",
+          "incidentpulse-dynamodb"
+        ],
+        "timeout": 30
+      }
+    },
+    {
+      "type": "probe",
+      "name": "time-to-ready",
+      "provider": {
+        "type": "process",
+        "path": "python",
+        "timeout": 150,
+        "arguments": [
+          "chaos/probes.py",
+          "wait-for-ready",
+          "--timeout",
+          "120"
+        ]
+      }
+    }
+  ],
+  "rollbacks": [
+    {
+      "type": "action",
+      "name": "make-sure-dynamodb-is-unfrozen",
+      "provider": {
+        "type": "process",
+        "path": "docker",
+        "arguments": [
+          "unpause",
+          "incidentpulse-dynamodb"
+        ],
+        "timeout": 30
+      }
+    }
+  ]
+}

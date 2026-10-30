@@ -1,0 +1,301 @@
+# Incident Pulse SLOs: recording rules and multi-window, multi-burn-rate alerts.
+#
+# SLOs (30-day window), defined in docs/slo.md:
+#   availability: 99.5% of requests return a non-5xx response  -> error budget 0.5%
+#   latency:      95% of requests complete in under 300 ms     -> error budget 5%
+#
+# Health and readiness probes are excluded: they are not user traffic.
+# Alert thresholds follow the Google SRE Workbook ("Alerting on SLOs"):
+#   page:   14.4x burn over 1h (confirmed by 5m)  or  6x over 6h (confirmed by 30m)
+#   ticket:    3x burn over 1d (confirmed by 2h)  or  1x over 3d (confirmed by 6h)
+#
+# Generated from one definition so every window uses identical selectors.
+# The 5xx numerator falls back to vector(0): with zero errors the series does not
+# exist yet, and without the fallback the SLI would be "no data" instead of 0.
+# Unit tests: observability/prometheus/tests/slo.test.yml (promtool test rules).
+
+groups:
+  - name: incident-pulse-sli
+    interval: 30s
+    rules:
+      - record: slo:sli_error:ratio_rate5m
+        labels:
+          service: incident-pulse
+          slo: availability
+        expr: |
+          (sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready", status_code=~"5.."}[5m])) or vector(0))
+          /
+          sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready"}[5m]))
+      - record: slo:sli_error:ratio_rate30m
+        labels:
+          service: incident-pulse
+          slo: availability
+        expr: |
+          (sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready", status_code=~"5.."}[30m])) or vector(0))
+          /
+          sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready"}[30m]))
+      - record: slo:sli_error:ratio_rate1h
+        labels:
+          service: incident-pulse
+          slo: availability
+        expr: |
+          (sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready", status_code=~"5.."}[1h])) or vector(0))
+          /
+          sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready"}[1h]))
+      - record: slo:sli_error:ratio_rate2h
+        labels:
+          service: incident-pulse
+          slo: availability
+        expr: |
+          (sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready", status_code=~"5.."}[2h])) or vector(0))
+          /
+          sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready"}[2h]))
+      - record: slo:sli_error:ratio_rate6h
+        labels:
+          service: incident-pulse
+          slo: availability
+        expr: |
+          (sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready", status_code=~"5.."}[6h])) or vector(0))
+          /
+          sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready"}[6h]))
+      - record: slo:sli_error:ratio_rate1d
+        labels:
+          service: incident-pulse
+          slo: availability
+        expr: |
+          (sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready", status_code=~"5.."}[1d])) or vector(0))
+          /
+          sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready"}[1d]))
+      - record: slo:sli_error:ratio_rate3d
+        labels:
+          service: incident-pulse
+          slo: availability
+        expr: |
+          (sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready", status_code=~"5.."}[3d])) or vector(0))
+          /
+          sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready"}[3d]))
+      - record: slo:sli_error:ratio_rate30d
+        labels:
+          service: incident-pulse
+          slo: availability
+        expr: |
+          (sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready", status_code=~"5.."}[30d])) or vector(0))
+          /
+          sum(rate(http_requests_total{job="incident-pulse", route!~"/health|/ready"}[30d]))
+      - record: slo:sli_error:ratio_rate5m
+        labels:
+          service: incident-pulse
+          slo: latency
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="incident-pulse", route!~"/health|/ready", le="0.3"}[5m]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="incident-pulse", route!~"/health|/ready"}[5m]))
+          )
+      - record: slo:sli_error:ratio_rate30m
+        labels:
+          service: incident-pulse
+          slo: latency
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="incident-pulse", route!~"/health|/ready", le="0.3"}[30m]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="incident-pulse", route!~"/health|/ready"}[30m]))
+          )
+      - record: slo:sli_error:ratio_rate1h
+        labels:
+          service: incident-pulse
+          slo: latency
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="incident-pulse", route!~"/health|/ready", le="0.3"}[1h]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="incident-pulse", route!~"/health|/ready"}[1h]))
+          )
+      - record: slo:sli_error:ratio_rate2h
+        labels:
+          service: incident-pulse
+          slo: latency
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="incident-pulse", route!~"/health|/ready", le="0.3"}[2h]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="incident-pulse", route!~"/health|/ready"}[2h]))
+          )
+      - record: slo:sli_error:ratio_rate6h
+        labels:
+          service: incident-pulse
+          slo: latency
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="incident-pulse", route!~"/health|/ready", le="0.3"}[6h]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="incident-pulse", route!~"/health|/ready"}[6h]))
+          )
+      - record: slo:sli_error:ratio_rate1d
+        labels:
+          service: incident-pulse
+          slo: latency
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="incident-pulse", route!~"/health|/ready", le="0.3"}[1d]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="incident-pulse", route!~"/health|/ready"}[1d]))
+          )
+      - record: slo:sli_error:ratio_rate3d
+        labels:
+          service: incident-pulse
+          slo: latency
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="incident-pulse", route!~"/health|/ready", le="0.3"}[3d]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="incident-pulse", route!~"/health|/ready"}[3d]))
+          )
+      - record: slo:sli_error:ratio_rate30d
+        labels:
+          service: incident-pulse
+          slo: latency
+        expr: |
+          1 - (
+            sum(rate(http_request_duration_seconds_bucket{job="incident-pulse", route!~"/health|/ready", le="0.3"}[30d]))
+            /
+            sum(rate(http_request_duration_seconds_count{job="incident-pulse", route!~"/health|/ready"}[30d]))
+          )
+  - name: incident-pulse-error-budget
+    interval: 30s
+    rules:
+      - record: slo:objective:ratio
+        labels:
+          service: incident-pulse
+          slo: availability
+        expr: vector(0.995)
+      - record: slo:error_budget_remaining:ratio
+        labels:
+          service: incident-pulse
+          slo: availability
+        expr: 1 - (slo:sli_error:ratio_rate30d{slo="availability"} / 0.005)
+      - record: slo:burn_rate:1h
+        labels:
+          service: incident-pulse
+          slo: availability
+        expr: slo:sli_error:ratio_rate1h{slo="availability"} / 0.005
+      - record: slo:objective:ratio
+        labels:
+          service: incident-pulse
+          slo: latency
+        expr: vector(0.95)
+      - record: slo:error_budget_remaining:ratio
+        labels:
+          service: incident-pulse
+          slo: latency
+        expr: 1 - (slo:sli_error:ratio_rate30d{slo="latency"} / 0.05)
+      - record: slo:burn_rate:1h
+        labels:
+          service: incident-pulse
+          slo: latency
+        expr: slo:sli_error:ratio_rate1h{slo="latency"} / 0.05
+  - name: incident-pulse-slo-alerts
+    rules:
+      - alert: IncidentPulseAvailabilityBudgetBurnFast
+        expr: |
+          (
+            slo:sli_error:ratio_rate1h{slo="availability"} > (14.4 * 0.005)
+            and
+            slo:sli_error:ratio_rate5m{slo="availability"} > (14.4 * 0.005)
+          )
+          or
+          (
+            slo:sli_error:ratio_rate6h{slo="availability"} > (6 * 0.005)
+            and
+            slo:sli_error:ratio_rate30m{slo="availability"} > (6 * 0.005)
+          )
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: Incident Pulse is burning its availability error budget fast
+          description: At this rate the 30-day availability error budget (99.5% of requests return a non-5xx response) runs out in under 2 days.
+          runbook_url: https://github.com/RISHABHJAIN27/IncidentPulse/blob/main/runbooks/slo-availability-burn.md
+      - alert: IncidentPulseAvailabilityBudgetBurnSlow
+        expr: |
+          (
+            slo:sli_error:ratio_rate1d{slo="availability"} > (3 * 0.005)
+            and
+            slo:sli_error:ratio_rate2h{slo="availability"} > (3 * 0.005)
+          )
+          or
+          (
+            slo:sli_error:ratio_rate3d{slo="availability"} > (1 * 0.005)
+            and
+            slo:sli_error:ratio_rate6h{slo="availability"} > (1 * 0.005)
+          )
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: Incident Pulse is steadily burning its availability error budget
+          description: The availability SLO (99.5% of requests return a non-5xx response) will be missed this window if the current error rate continues.
+          runbook_url: https://github.com/RISHABHJAIN27/IncidentPulse/blob/main/runbooks/slo-availability-burn.md
+      - alert: IncidentPulseLatencyBudgetBurnFast
+        expr: |
+          (
+            slo:sli_error:ratio_rate1h{slo="latency"} > (14.4 * 0.05)
+            and
+            slo:sli_error:ratio_rate5m{slo="latency"} > (14.4 * 0.05)
+          )
+          or
+          (
+            slo:sli_error:ratio_rate6h{slo="latency"} > (6 * 0.05)
+            and
+            slo:sli_error:ratio_rate30m{slo="latency"} > (6 * 0.05)
+          )
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: Incident Pulse is burning its latency error budget fast
+          description: At this rate the 30-day latency error budget (95% of requests complete in under 300 ms) runs out in under 2 days.
+          runbook_url: https://github.com/RISHABHJAIN27/IncidentPulse/blob/main/runbooks/slo-latency-burn.md
+      - alert: IncidentPulseLatencyBudgetBurnSlow
+        expr: |
+          (
+            slo:sli_error:ratio_rate1d{slo="latency"} > (3 * 0.05)
+            and
+            slo:sli_error:ratio_rate2h{slo="latency"} > (3 * 0.05)
+          )
+          or
+          (
+            slo:sli_error:ratio_rate3d{slo="latency"} > (1 * 0.05)
+            and
+            slo:sli_error:ratio_rate6h{slo="latency"} > (1 * 0.05)
+          )
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: Incident Pulse is steadily burning its latency error budget
+          description: The latency SLO (95% of requests complete in under 300 ms) will be missed this window if the current error rate continues.
+          runbook_url: https://github.com/RISHABHJAIN27/IncidentPulse/blob/main/runbooks/slo-latency-burn.md
+  - name: incident-pulse-availability
+    rules:
+      - alert: IncidentPulseReplicaDown
+        expr: up{job="incident-pulse"} == 0
+        for: 1m
+        labels:
+          service: incident-pulse
+          severity: ticket
+        annotations:
+          summary: An Incident Pulse replica is not responding to scrapes
+          description: One replica is down; the load balancer is serving from the remaining replicas with reduced headroom.
+          runbook_url: https://github.com/RISHABHJAIN27/IncidentPulse/blob/main/runbooks/replica-down.md
+      - alert: IncidentPulseAllReplicasDown
+        expr: sum(up{job="incident-pulse"}) == 0
+        for: 1m
+        labels:
+          service: incident-pulse
+          severity: page
+        annotations:
+          summary: Every Incident Pulse replica is down
+          description: No replica is responding; the status page API is fully unavailable.
+          runbook_url: https://github.com/RISHABHJAIN27/IncidentPulse/blob/main/runbooks/replica-down.md

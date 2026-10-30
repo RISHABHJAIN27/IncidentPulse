@@ -1,0 +1,86 @@
+{
+  "version": "1.0.0",
+  "title": "Losing one app replica does not break the SLOs",
+  "description": "Kills one of the two app replicas behind the load balancer. The hypothesis is checked again while the replica is still dead (rollbacks run last), so it proves users keep getting fast, successful responses through failover. Real-world equivalent: an ECS task crashing or being replaced. Run from the repo root with the stack up: chaos run chaos/replica-loss.json",
+  "tags": [
+    "incident-pulse",
+    "availability",
+    "redundancy"
+  ],
+  "contributions": {
+    "availability": "high",
+    "reliability": "high",
+    "performance": "medium"
+  },
+  "steady-state-hypothesis": {
+    "title": "Users get fast, successful responses (client-side SLOs hold)",
+    "probes": [
+      {
+        "type": "probe",
+        "name": "status-page-answers",
+        "tolerance": 200,
+        "provider": {
+          "type": "http",
+          "url": "http://localhost:8080/status",
+          "timeout": 10
+        }
+      },
+      {
+        "type": "probe",
+        "name": "client-side-slo-holds-for-20s",
+        "tolerance": 0,
+        "provider": {
+          "type": "process",
+          "path": "docker",
+          "timeout": 120,
+          "arguments": [
+            "compose",
+            "run",
+            "--rm",
+            "-e",
+            "DURATION=20s",
+            "-e",
+            "RATE=20",
+            "k6",
+            "run",
+            "--quiet",
+            "/scripts/chaos-background.js"
+          ]
+        }
+      }
+    ]
+  },
+  "method": [
+    {
+      "type": "action",
+      "name": "kill-app-replica-1",
+      "provider": {
+        "type": "process",
+        "path": "docker",
+        "arguments": [
+          "kill",
+          "incidentpulse-app-1"
+        ],
+        "timeout": 30
+      },
+      "pauses": {
+        "after": 5
+      }
+    }
+  ],
+  "rollbacks": [
+    {
+      "type": "action",
+      "name": "start-app-replica-1",
+      "provider": {
+        "type": "process",
+        "path": "docker",
+        "arguments": [
+          "start",
+          "incidentpulse-app-1"
+        ],
+        "timeout": 60
+      }
+    }
+  ]
+}

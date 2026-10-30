@@ -1,0 +1,191 @@
+# Unit tests for the SLO rules. Run: promtool test rules observability/prometheus/tests/slo.test.yml
+rule_files:
+- ../rules/slo.yml
+evaluation_interval: 30s
+tests:
+- name: Healthy traffic (0.1% errors, 1% slow) raises no alerts
+  interval: 1m
+  input_series:
+  - series: http_requests_total{job="incident-pulse",instance="app-1:8000",method="GET",route="/incidents",status_code="200"}
+    values: 0+999x200
+  - series: http_requests_total{job="incident-pulse",instance="app-1:8000",method="GET",route="/incidents",status_code="500"}
+    values: 0+1x200
+  - series: http_request_duration_seconds_bucket{job="incident-pulse",instance="app-1:8000",method="GET",route="/incidents",le="0.3"}
+    values: 0+990x200
+  - series: http_request_duration_seconds_count{job="incident-pulse",instance="app-1:8000",method="GET",route="/incidents"}
+    values: 0+1000x200
+  - series: up{job="incident-pulse",instance="app-1:8000"}
+    values: 1x200
+  - series: up{job="incident-pulse",instance="app-2:8000"}
+    values: 1x200
+  alert_rule_test:
+  - eval_time: 30m
+    alertname: IncidentPulseAvailabilityBudgetBurnFast
+    exp_alerts: []
+  - eval_time: 3h
+    alertname: IncidentPulseAvailabilityBudgetBurnFast
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: IncidentPulseAvailabilityBudgetBurnSlow
+    exp_alerts: []
+  - eval_time: 3h
+    alertname: IncidentPulseAvailabilityBudgetBurnSlow
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: IncidentPulseLatencyBudgetBurnFast
+    exp_alerts: []
+  - eval_time: 3h
+    alertname: IncidentPulseLatencyBudgetBurnFast
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: IncidentPulseLatencyBudgetBurnSlow
+    exp_alerts: []
+  - eval_time: 3h
+    alertname: IncidentPulseLatencyBudgetBurnSlow
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: IncidentPulseReplicaDown
+    exp_alerts: []
+  - eval_time: 3h
+    alertname: IncidentPulseReplicaDown
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: IncidentPulseAllReplicasDown
+    exp_alerts: []
+  - eval_time: 3h
+    alertname: IncidentPulseAllReplicasDown
+    exp_alerts: []
+- name: Zero errors gives an availability error ratio of 0, not 'no data'
+  interval: 1m
+  input_series:
+  - series: http_requests_total{job="incident-pulse",instance="app-1:8000",method="GET",route="/status",status_code="200"}
+    values: 0+100x60
+  promql_expr_test:
+  - expr: slo:sli_error:ratio_rate5m{slo="availability"}
+    eval_time: 30m
+    exp_samples:
+    - labels: slo:sli_error:ratio_rate5m{service="incident-pulse",slo="availability"}
+      value: 0
+  - expr: slo:error_budget_remaining:ratio{slo="availability"}
+    eval_time: 30m
+    exp_samples:
+    - labels: slo:error_budget_remaining:ratio{service="incident-pulse",slo="availability"}
+      value: 1
+- name: 10% errors page within minutes, then open a ticket
+  interval: 1m
+  input_series:
+  - series: http_requests_total{job="incident-pulse",instance="app-1:8000",method="GET",route="/incidents",status_code="200"}
+    values: 0+900x200
+  - series: http_requests_total{job="incident-pulse",instance="app-1:8000",method="GET",route="/incidents",status_code="500"}
+    values: 0+100x200
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: IncidentPulseAvailabilityBudgetBurnFast
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: IncidentPulseAvailabilityBudgetBurnFast
+    exp_alerts:
+    - exp_labels:
+        service: incident-pulse
+        slo: availability
+        severity: page
+      exp_annotations:
+        summary: Incident Pulse is burning its availability error budget fast
+        description: At this rate the 30-day availability error budget (99.5% of requests return a non-5xx response) runs out in under 2 days.
+        runbook_url: https://github.com/RISHABHJAIN27/IncidentPulse/blob/main/runbooks/slo-availability-burn.md
+  - eval_time: 10m
+    alertname: IncidentPulseAvailabilityBudgetBurnSlow
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: IncidentPulseAvailabilityBudgetBurnSlow
+    exp_alerts:
+    - exp_labels:
+        service: incident-pulse
+        slo: availability
+        severity: ticket
+      exp_annotations: &id001
+        summary: Incident Pulse is steadily burning its availability error budget
+        description: The availability SLO (99.5% of requests return a non-5xx response) will be missed this window if the current error rate continues.
+        runbook_url: https://github.com/RISHABHJAIN27/IncidentPulse/blob/main/runbooks/slo-availability-burn.md
+  promql_expr_test:
+  - expr: round(slo:burn_rate:1h{slo="availability"}, 0.01)
+    eval_time: 30m
+    exp_samples:
+    - labels: '{service="incident-pulse",slo="availability"}'
+      value: 20
+- name: '2% errors burn slowly: ticket, never a page'
+  interval: 1m
+  input_series:
+  - series: http_requests_total{job="incident-pulse",instance="app-1:8000",method="GET",route="/incidents",status_code="200"}
+    values: 0+980x200
+  - series: http_requests_total{job="incident-pulse",instance="app-1:8000",method="GET",route="/incidents",status_code="500"}
+    values: 0+20x200
+  alert_rule_test:
+  - eval_time: 3h
+    alertname: IncidentPulseAvailabilityBudgetBurnFast
+    exp_alerts: []
+  - eval_time: 3h
+    alertname: IncidentPulseAvailabilityBudgetBurnSlow
+    exp_alerts:
+    - exp_labels:
+        service: incident-pulse
+        slo: availability
+        severity: ticket
+      exp_annotations: *id001
+- name: 80% of requests slower than 300 ms page on the latency SLO
+  interval: 1m
+  input_series:
+  - series: http_requests_total{job="incident-pulse",instance="app-1:8000",method="GET",route="/incidents",status_code="200"}
+    values: 0+1000x200
+  - series: http_request_duration_seconds_bucket{job="incident-pulse",instance="app-1:8000",method="GET",route="/incidents",le="0.3"}
+    values: 0+200x200
+  - series: http_request_duration_seconds_count{job="incident-pulse",instance="app-1:8000",method="GET",route="/incidents"}
+    values: 0+1000x200
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: IncidentPulseLatencyBudgetBurnFast
+    exp_alerts:
+    - exp_labels:
+        service: incident-pulse
+        slo: latency
+        severity: page
+      exp_annotations:
+        summary: Incident Pulse is burning its latency error budget fast
+        description: At this rate the 30-day latency error budget (95% of requests complete in under 300 ms) runs out in under 2 days.
+        runbook_url: https://github.com/RISHABHJAIN27/IncidentPulse/blob/main/runbooks/slo-latency-burn.md
+  - eval_time: 10m
+    alertname: IncidentPulseAvailabilityBudgetBurnFast
+    exp_alerts: []
+- name: Losing one replica opens a ticket; losing both pages
+  interval: 1m
+  input_series:
+  - series: up{job="incident-pulse",instance="app-1:8000"}
+    values: 1 1 0 0 0 0 0 0 0 0
+  - series: up{job="incident-pulse",instance="app-2:8000"}
+    values: 1 1 1 1 1 1 0 0 0 0
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: IncidentPulseReplicaDown
+    exp_alerts:
+    - exp_labels:
+        job: incident-pulse
+        instance: app-1:8000
+        service: incident-pulse
+        severity: ticket
+      exp_annotations:
+        summary: An Incident Pulse replica is not responding to scrapes
+        description: One replica is down; the load balancer is serving from the remaining replicas with reduced headroom.
+        runbook_url: https://github.com/RISHABHJAIN27/IncidentPulse/blob/main/runbooks/replica-down.md
+  - eval_time: 5m
+    alertname: IncidentPulseAllReplicasDown
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: IncidentPulseAllReplicasDown
+    exp_alerts:
+    - exp_labels:
+        service: incident-pulse
+        severity: page
+      exp_annotations:
+        summary: Every Incident Pulse replica is down
+        description: No replica is responding; the status page API is fully unavailable.
+        runbook_url: https://github.com/RISHABHJAIN27/IncidentPulse/blob/main/runbooks/replica-down.md

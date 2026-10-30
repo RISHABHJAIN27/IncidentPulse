@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from app.models import Incident, IncidentCreate, IncidentUpdate
 from app import database
+from app.observability import MetricsMiddleware, metrics_response, setup_tracing
 
 
 # ---------------------------------------------------------------------------
@@ -27,6 +29,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Request count and latency for every route (the SLI source), plus OpenTelemetry
+# traces when OTEL_ENABLED=true.
+app.add_middleware(MetricsMiddleware)
+setup_tracing(app)
+
 
 # ---------------------------------------------------------------------------
 # Health
@@ -34,7 +41,22 @@ app = FastAPI(
 
 @app.get("/health")
 def health_check():
+    # Liveness: the process is up. Deliberately does not touch DynamoDB.
     return {"status": "healthy"}
+
+
+@app.get("/ready")
+def readiness_check():
+    # Readiness: this instance can reach its database and serve real traffic.
+    if database.check_ready():
+        return {"status": "ready"}
+    return JSONResponse(status_code=503, content={"status": "not_ready", "reason": "dynamodb_unreachable"})
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics():
+    # Prometheus scrape endpoint.
+    return metrics_response()
 
 
 # ---------------------------------------------------------------------------
