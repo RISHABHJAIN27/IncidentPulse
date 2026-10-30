@@ -32,6 +32,21 @@ export function createIncident() {
   return res.status === 201 ? res.json('id') : null;
 }
 
+function resolveIncident(id) {
+  const res = http.patch(
+    `${BASE_URL}/incidents/${id}`,
+    JSON.stringify({ status: 'resolved' }),
+    Object.assign({ tags: { name: 'PATCH /incidents/{id}' } }, JSON_PARAMS),
+  );
+  check(res, { 'resolve: 200': (r) => r.status === 200 });
+}
+
+// Load tests write to the real status page. Anything they open must be resolved,
+// or GET /status reports a major outage long after the test is over.
+export function resolveAll(ids) {
+  ids.forEach(resolveIncident);
+}
+
 export function seedIncidents(count) {
   const ids = [];
   for (let i = 0; i < count; i++) {
@@ -63,6 +78,7 @@ export function userJourney(ids) {
     );
     check(res, { 'update: 200': (r) => r.status === 200 });
   } else {
-    createIncident();
+    const id = createIncident(); // full lifecycle: open, then resolve
+    if (id) resolveIncident(id);
   }
 }

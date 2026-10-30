@@ -2,7 +2,7 @@
 // breaks the 300 ms SLO. Read the per-stage results to size replicas:
 // sustainable rate per replica = highest rate that still met p95 < 300 ms.
 //   docker compose run --rm k6 run /scripts/stress.js
-import { seedIncidents, userJourney } from './lib.js';
+import { resolveAll, seedIncidents, userJourney } from './lib.js';
 
 const MAX_RATE = Number(__ENV.MAX_RATE || 200);
 
@@ -36,4 +36,8 @@ export function setup() {
 
 export default function (data) {
   userJourney(data.ids);
+}
+
+export function teardown(data) {
+  resolveAll(data.ids);
 }

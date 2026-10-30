@@ -2,7 +2,7 @@
 // per-endpoint latency thresholds.
 //   docker compose run --rm k6 run /scripts/load.js
 import { sleep } from 'k6';
-import { SLO_THRESHOLDS, seedIncidents, userJourney } from './lib.js';
+import { SLO_THRESHOLDS, resolveAll, seedIncidents, userJourney } from './lib.js';
 
 export const options = {
   stages: [
@@ -24,4 +24,8 @@ export function setup() {
 export default function (data) {
   userJourney(data.ids);
   sleep(Math.random() * 0.5 + 0.25);
+}
+
+export function teardown(data) {
+  resolveAll(data.ids);
 }

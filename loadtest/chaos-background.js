@@ -2,7 +2,7 @@
 // so the error ratio during the fault is measured against real load.
 // Thresholds are the SLOs, so the experiment fails if users would have noticed.
 //   DURATION=2m RATE=20 k6 run loadtest/chaos-background.js
-import { SLO_THRESHOLDS, seedIncidents, userJourney } from './lib.js';
+import { SLO_THRESHOLDS, resolveAll, seedIncidents, userJourney } from './lib.js';
 
 export const options = {
   scenarios: {
@@ -24,4 +24,8 @@ export function setup() {
 
 export default function (data) {
   userJourney(data.ids);
+}
+
+export function teardown(data) {
+  resolveAll(data.ids);
 }
