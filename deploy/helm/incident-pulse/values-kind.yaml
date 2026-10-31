@@ -1,0 +1,23 @@
+# Local kind cluster: DynamoDB Local in the cluster, image loaded with `kind load`.
+image:
+  repository: incident-pulse
+  tag: local
+  pullPolicy: Never
+
+app:
+  environment: local
+
+localCredentials:
+  enabled: true
+
+dynamodbLocal:
+  enabled: true
+
+service:
+  type: NodePort
+  nodePort: 30080
+
+# kind has no metrics-server by default, so a CPU-based HPA cannot read usage.
+autoscaling:
+  enabled: false
+replicaCount: 2

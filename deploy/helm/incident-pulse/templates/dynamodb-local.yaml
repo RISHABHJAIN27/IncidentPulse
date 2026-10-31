@@ -1,0 +1,63 @@
+{{- if .Values.dynamodbLocal.enabled }}
+# DynamoDB Local for development and CI only (in-memory, single replica).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "incident-pulse.fullname" . }}-dynamodb
+  labels:
+    {{- include "incident-pulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dynamodb-local
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: dynamodb-local
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: dynamodb-local
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dynamodb
+          image: {{ .Values.dynamodbLocal.image }}
+          args: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+          ports:
+            - name: dynamodb
+              containerPort: 8000
+          readinessProbe:
+            tcpSocket:
+              port: dynamodb
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "incident-pulse.fullname" . }}-dynamodb
+  labels:
+    {{- include "incident-pulse.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: dynamodb-local
+  ports:
+    - name: dynamodb
+      port: {{ .Values.dynamodbLocal.port }}
+      targetPort: dynamodb
+{{- end }}
