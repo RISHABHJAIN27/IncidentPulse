@@ -75,6 +75,19 @@ jobs:
         run: |
           kubectl rollout status deployment/incident-pulse --timeout 2m
           kubectl get pods -o wide
+      - name: Pods become ready again after a database restart
+        # DynamoDB Local is in-memory: a restart loses the table. Readiness must
+        # recover instead of leaving every pod NotReady (which also blocks node drains).
+        run: |
+          kubectl scale deploy/incident-pulse-dynamodb --replicas=0
+          kubectl wait pod -l app.kubernetes.io/name=incident-pulse --for=condition=Ready=false --timeout 60s
+          kubectl scale deploy/incident-pulse-dynamodb --replicas=1
+          kubectl wait pod -l app.kubernetes.io/name=incident-pulse --for=condition=Ready --timeout 120s
+      - name: Node drain respects the PodDisruptionBudget
+        run: |
+          kubectl drain incident-pulse-worker --ignore-daemonsets --delete-emptydir-data --timeout 180s
+          kubectl uncordon incident-pulse-worker
+          kubectl rollout status deployment/incident-pulse --timeout 2m
       - name: Diagnostics
         if: failure()
         run: |

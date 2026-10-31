@@ -2,7 +2,7 @@ import inspect
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 with patch("app.database.create_table_if_not_exists"):
@@ -90,3 +90,31 @@ def test_liveness_and_metrics_do_not_wait_for_the_request_thread_pool():
     endpoints = {route.path: route.endpoint for route in app.routes if hasattr(route, "endpoint")}
     assert inspect.iscoroutinefunction(endpoints["/health"])
     assert inspect.iscoroutinefunction(endpoints["/metrics"])
+
+
+# check_ready after DynamoDB Local restarts (in-memory: the table is gone)
+def _not_found():
+    from botocore.exceptions import ClientError
+    return ClientError({"Error": {"Code": "ResourceNotFoundException", "Message": "gone"}}, "DescribeTable")
+
+
+def test_ready_recreates_missing_table_locally():
+    from app import database
+    resource = MagicMock()
+    resource.meta.client.describe_table.side_effect = _not_found()
+    with patch.object(database, "ENVIRONMENT", "local"), \
+         patch.object(database, "_get_dynamodb_resource", return_value=resource), \
+         patch.object(database, "create_table_if_not_exists") as create:
+        assert database.check_ready() is True
+    create.assert_called_once()
+
+
+def test_missing_table_in_production_is_not_ready():
+    from app import database
+    resource = MagicMock()
+    resource.meta.client.describe_table.side_effect = _not_found()
+    with patch.object(database, "ENVIRONMENT", "production"), \
+         patch.object(database, "_get_dynamodb_resource", return_value=resource), \
+         patch.object(database, "create_table_if_not_exists") as create:
+        assert database.check_ready() is False
+    create.assert_not_called()
