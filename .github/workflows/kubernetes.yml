@@ -55,6 +55,10 @@ jobs:
         run: |
           helm upgrade --install incident-pulse "$CHART" -f "$CHART/values-kind.yaml" --wait --timeout 5m
           kubectl get pods -o wide
+      - name: No restarts during startup
+        run: |
+          R=$(kubectl get pods -l app.kubernetes.io/name=incident-pulse -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{"\n"}{end}' | sort -n | tail -1)
+          echo "max restarts: $R"; test "$R" = "0"
       - name: helm test
         run: helm test incident-pulse --logs
       - name: k6 smoke test while a pod is deleted

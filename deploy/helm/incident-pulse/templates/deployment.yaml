@@ -42,6 +42,36 @@ spec:
             matchLabels:
               {{- include "incident-pulse.selectorLabels" . | nindent 14 }}
       {{- end }}
+      {{- if .Values.dynamodbLocal.enabled }}
+      # Dev only: the app creates its table on startup, so wait for DynamoDB Local
+      # instead of crash-looping until it is up.
+      initContainers:
+        - name: wait-for-dynamodb
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - python
+            - -c
+            - |
+              import socket, time
+              for _ in range(60):
+                  try:
+                      socket.create_connection(("{{ include "incident-pulse.fullname" . }}-dynamodb", {{ .Values.dynamodbLocal.port }}), 2).close()
+                      break
+                  except OSError:
+                      time.sleep(2)
+              else:
+                  raise SystemExit("DynamoDB Local not reachable")
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+      {{- end }}
       containers:
         - name: app
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
