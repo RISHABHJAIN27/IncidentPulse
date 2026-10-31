@@ -51,6 +51,18 @@ def check_ready() -> bool:
     try:
         _get_dynamodb_resource().meta.client.describe_table(TableName=TABLE_NAME)
         return True
+    except ClientError as err:
+        # Locally, DynamoDB Local runs in memory: when it restarts the table is
+        # gone and the pods would stay NotReady forever (found draining a kind
+        # node). Recreate it. In production Terraform owns the table, so a
+        # missing table stays a real "not ready".
+        if ENVIRONMENT == "local" and err.response["Error"]["Code"] == "ResourceNotFoundException":
+            try:
+                create_table_if_not_exists()
+                return True
+            except Exception:
+                return False
+        return False
     except Exception:
         return False
 
