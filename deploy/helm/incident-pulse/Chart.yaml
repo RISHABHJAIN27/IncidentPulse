@@ -1,0 +1,6 @@
+apiVersion: v2
+name: incident-pulse
+description: Incident Pulse status page API with probes, autoscaling, a disruption budget and hardened pods.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

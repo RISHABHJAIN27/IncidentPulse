@@ -1,0 +1,14 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+# Node drains and cluster upgrades can never take every replica down at once.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "incident-pulse.fullname" . }}
+  labels:
+    {{- include "incident-pulse.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "incident-pulse.selectorLabels" . | nindent 6 }}
+{{- end }}

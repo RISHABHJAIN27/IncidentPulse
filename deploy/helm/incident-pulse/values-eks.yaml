@@ -1,0 +1,20 @@
+# AWS EKS: real DynamoDB, image from ECR, credentials from IRSA (no static keys).
+image:
+  repository: <account>.dkr.ecr.us-east-1.amazonaws.com/incident-pulse
+  tag: latest
+  pullPolicy: IfNotPresent
+
+app:
+  environment: production
+  awsRegion: us-east-1
+  tableName: incidents
+
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<account>:role/incident-pulse-dynamodb
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6

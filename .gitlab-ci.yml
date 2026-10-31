@@ -1,0 +1,108 @@
+# GitLab CI version of the pipeline (the repo runs on GitHub Actions; this shows
+# the same gates on GitLab). Needs a runner with Docker-in-Docker.
+#
+#   test     -> app unit tests, SLO alert rule tests, Helm lint + schema check
+#   security -> Gitleaks (history), Trivy config, Trivy image (fixable CRITICAL fails)
+#   build    -> push the image to the GitLab registry (main only)
+#   deploy   -> helm upgrade to a cluster (manual, main only)
+
+stages: [test, security, build, deploy]
+
+variables:
+  CHART: deploy/helm/incident-pulse
+  IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+  DOCKER_TLS_CERTDIR: "/certs"
+
+.docker:
+  image: docker:28.5.2
+  services: ["docker:28.5.2-dind"]
+
+unit-tests:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - pip install -r requirements.txt
+    - python -m pytest -q
+
+slo-rule-tests:
+  stage: test
+  image:
+    name: prom/prometheus:v3.15.1
+    entrypoint: [""]
+  script:
+    - promtool check rules observability/prometheus/rules/slo.yml
+    - promtool test rules observability/prometheus/tests/slo.test.yml
+
+helm-chart:
+  stage: test
+  image:
+    name: alpine/helm:3.22.1
+    entrypoint: [""]
+  script:
+    - wget -qO- https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+    - helm lint $CHART -f $CHART/values-kind.yaml
+    - helm template ip $CHART -f $CHART/values-eks.yaml | ./kubeconform -strict -summary -kubernetes-version 1.33.0 -
+
+gitleaks:
+  stage: security
+  image:
+    name: zricethezav/gitleaks:v8.30.1
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - gitleaks git . --redact --no-banner -v
+
+trivy-config:
+  stage: security
+  image:
+    name: aquasec/trivy:0.76.1
+    entrypoint: [""]
+  script:
+    - trivy config --quiet --exit-code 1 --severity HIGH,CRITICAL Dockerfile
+    - trivy config --quiet --exit-code 1 --severity HIGH,CRITICAL deploy/helm
+
+image-tarball:
+  extends: .docker
+  stage: test
+  script:
+    - docker build -t incident-pulse:scan .
+    - docker save -o image.tar incident-pulse:scan
+  artifacts:
+    paths: [image.tar]
+    expire_in: 1 day
+
+trivy-image:
+  stage: security
+  needs: [image-tarball]
+  image:
+    name: aquasec/trivy:0.76.1
+    entrypoint: [""]
+  script:
+    - trivy image --quiet --input image.tar --severity HIGH,CRITICAL
+    - trivy image --quiet --input image.tar --exit-code 1 --ignore-unfixed --severity CRITICAL
+
+build-image:
+  extends: .docker
+  stage: build
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build -t "$IMAGE" .
+    - docker push "$IMAGE"
+
+deploy:
+  stage: deploy
+  image:
+    name: alpine/helm:3.22.1
+    entrypoint: [""]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+  environment: production
+  # KUBECONFIG is a protected, file-type CI/CD variable.
+  script:
+    - helm upgrade --install incident-pulse $CHART -f $CHART/values-eks.yaml
+        --set image.repository=$CI_REGISTRY_IMAGE --set image.tag=$CI_COMMIT_SHORT_SHA
+        --atomic --wait --timeout 5m

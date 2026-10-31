@@ -52,13 +52,13 @@ flowchart LR
 | App | Python, FastAPI |
 | Database | Amazon DynamoDB |
 | Containerization | Docker |
-| Compute | AWS ECS Fargate |
+| Compute | AWS ECS Fargate; Kubernetes (Helm chart, tested on kind) |
 | Networking | VPC, ALB, Security Groups |
 | IaC | Terraform |
-| CI/CD | GitHub Actions |
+| CI/CD | GitHub Actions (GitLab CI example included) |
 | Registry | Amazon ECR |
 | Monitoring | Amazon CloudWatch, SNS |
-| Security | IAM Roles & Policies |
+| Security | IAM Roles & Policies, Trivy (image + config), Gitleaks, non-root hardened pods |
 | Metrics, SLOs & Alerting | Prometheus, Alertmanager, Grafana (dashboards as code) |
 | Tracing | OpenTelemetry (SDK + Collector), Jaeger |
 | Load & Capacity Testing | k6 |
@@ -99,6 +99,8 @@ flowchart LR
 - **Load and capacity tests** — k6 smoke, load and stress (step-up arrival rate) scenarios
 - **Chaos experiments** — replica loss (proves failover) and DynamoDB brownout (proves detection and recovery)
 - **Failure mode analysis** — what can break, its impact, detection, mitigation and proof (`docs/failure-mode-analysis.md`)
+- **Kubernetes** — Helm chart with liveness/readiness probes, zero-downtime rolling updates, PodDisruptionBudget, HPA, topology spread and hardened pods (non-root, read-only filesystem); CI deploys it to a 3-node kind cluster and deletes a pod under load to prove self-healing (`docs/kubernetes.md`)
+- **Security scanning** — Gitleaks over the full git history, Trivy misconfiguration checks on the Dockerfile and chart, and a Trivy image scan that fails on fixable CRITICAL CVEs
 - **AI incident triage** — a LangGraph agent with RAG over the runbooks, guardrails (no destructive commands, must cite a runbook, never downgrade a page), retry with feedback, a rule-based fallback when the LLM is down or wrong, LangFuse tracing and a Promptfoo eval suite that includes a prompt-injection case
 
 ---
@@ -255,6 +257,18 @@ Visit `http://localhost:8000/docs` to access the Swagger UI.
 
 ---
 
+## Run on Kubernetes (kind)
+
+```bash
+just kind-up      # 3-node kind cluster, build + load image, helm install, helm test
+just kind-smoke   # k6 smoke test against http://localhost:8080
+just kind-down
+```
+
+Exercises (self-healing, node drain with the PDB, readiness vs liveness during a database outage, rollback) are in [docs/kubernetes.md](docs/kubernetes.md).
+
+---
+
 ## Run the Reliability Lab
 
 ### Prerequisites
@@ -395,6 +409,15 @@ The reliability workflow (`.github/workflows/reliability.yml`) runs on every pul
 ```
 Unit tests (app + triage agent) → promtool rule tests + config checks → compose up → k6 smoke test against the SLOs
 ```
+
+Two more workflows run on every pull request:
+
+```
+kubernetes.yml: helm lint + kubeconform → kind cluster (3 nodes) → helm install → helm test → k6 smoke while a pod is deleted
+security.yml:   Gitleaks (full history) → Trivy config (Dockerfile, chart) → Trivy image scan (also weekly)
+```
+
+`.gitlab-ci.yml` shows the same test → security → build → deploy pipeline on GitLab.
 
 **Required GitHub Secrets (deploy workflow):**
 - `AWS_ACCESS_KEY_ID`

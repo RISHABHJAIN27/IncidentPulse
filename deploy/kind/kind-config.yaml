@@ -1,0 +1,14 @@
+# Local 3-node cluster: 1 control plane + 2 workers, so replicas spread across
+# nodes and node-drain / PDB behaviour can be practised.
+#   kind create cluster --name incident-pulse --config deploy/kind/kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # Service NodePort 30080 -> http://localhost:8080
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
+  - role: worker
+  - role: worker

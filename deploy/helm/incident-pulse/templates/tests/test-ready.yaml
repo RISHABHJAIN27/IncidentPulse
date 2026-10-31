@@ -1,0 +1,36 @@
+# `helm test <release>`: the app is reachable through its Service and can reach its database.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "incident-pulse.fullname" . }}-test-ready
+  labels:
+    {{- include "incident-pulse.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: ready
+      image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      command:
+        - python
+        - -c
+        - |
+          import urllib.request
+          url = "http://{{ include "incident-pulse.fullname" . }}:{{ .Values.service.port }}/ready"
+          with urllib.request.urlopen(url, timeout=5) as r:
+              assert r.status == 200, r.status
+              print("ready:", r.read().decode())
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]

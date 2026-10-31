@@ -1,0 +1,83 @@
+# Deploys Incident Pulse to a real 3-node Kubernetes cluster (kind) on every PR:
+# lint + schema-check the Helm chart, install it, run `helm test`, then run the
+# k6 SLO smoke test while deleting a pod, to prove the service self-heals
+# without breaking its SLOs.
+name: Kubernetes
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CHART: deploy/helm/incident-pulse
+  CLUSTER: incident-pulse
+
+jobs:
+  chart:
+    name: Helm lint and schema check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: helm lint (default, kind and EKS values)
+        run: |
+          helm lint "$CHART"
+          helm lint "$CHART" -f "$CHART/values-kind.yaml"
+          helm lint "$CHART" -f "$CHART/values-eks.yaml"
+      - name: kubeconform (strict, Kubernetes 1.33)
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          for v in values.yaml values-kind.yaml values-eks.yaml; do
+            helm template ip "$CHART" -f "$CHART/$v" | ./kubeconform -strict -summary -kubernetes-version 1.33.0 -
+          done
+
+  kind:
+    name: Deploy to kind and test self-healing
+    runs-on: ubuntu-latest
+    needs: chart
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: Create a 3-node kind cluster
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          version: v0.33.0
+          cluster_name: ${{ env.CLUSTER }}
+          config: deploy/kind/kind-config.yaml
+      - name: Build the image and load it into the cluster
+        run: |
+          docker build -t incident-pulse:local .
+          kind load docker-image incident-pulse:local --name "$CLUSTER"
+      - name: helm install
+        run: |
+          helm upgrade --install incident-pulse "$CHART" -f "$CHART/values-kind.yaml" --wait --timeout 5m
+          kubectl get pods -o wide
+      - name: No restarts during startup
+        run: |
+          R=$(kubectl get pods -l app.kubernetes.io/name=incident-pulse -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{"\n"}{end}' | sort -n | tail -1)
+          echo "max restarts: $R"; test "$R" = "0"
+      - name: helm test
+        run: helm test incident-pulse --logs
+      - name: k6 smoke test while a pod is deleted
+        run: |
+          docker run --rm --network host -v "$PWD/loadtest:/scripts" -e BASE_URL=http://localhost:8080 \
+            grafana/k6:2.3.0 run /scripts/smoke.js &
+          K6=$!
+          sleep 12
+          POD=$(kubectl get pods -l app.kubernetes.io/name=incident-pulse -o jsonpath='{.items[0].metadata.name}')
+          echo "Deleting $POD mid-test"
+          kubectl delete pod "$POD" --wait=false
+          wait $K6
+      - name: Deployment recovered to full strength
+        run: |
+          kubectl rollout status deployment/incident-pulse --timeout 2m
+          kubectl get pods -o wide
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl get all,pdb,events -o wide
+          kubectl describe pods -l app.kubernetes.io/name=incident-pulse
+          kubectl logs -l app.kubernetes.io/name=incident-pulse --tail 100 --prefix

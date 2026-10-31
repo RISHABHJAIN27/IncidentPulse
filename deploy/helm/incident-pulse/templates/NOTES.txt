@@ -1,0 +1,13 @@
+Incident Pulse is deployed as {{ include "incident-pulse.fullname" . }}.
+
+Check it:
+  kubectl rollout status deployment/{{ include "incident-pulse.fullname" . }}
+  helm test {{ .Release.Name }}
+{{- if eq .Values.service.type "NodePort" }}
+
+API: http://localhost:8080/docs  (kind maps NodePort {{ .Values.service.nodePort }} to localhost:8080)
+{{- else }}
+
+API: kubectl port-forward svc/{{ include "incident-pulse.fullname" . }} 8080:{{ .Values.service.port }}
+     then open http://localhost:8080/docs
+{{- end }}

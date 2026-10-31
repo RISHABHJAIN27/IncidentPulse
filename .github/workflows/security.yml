@@ -1,0 +1,54 @@
+# Security gate on every PR and weekly (new CVEs appear without code changes):
+#   Gitleaks  - secrets anywhere in git history
+#   Trivy     - misconfigurations in the Dockerfile and Helm chart
+#   Trivy     - fixable CRITICAL CVEs in the app image (OS + Python packages)
+name: Security
+
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Gitleaks (full history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan every commit for secrets
+        # Known false positives are listed by fingerprint in .gitleaksignore.
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 git /repo --redact --no-banner -v
+
+  config:
+    name: Trivy misconfiguration scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dockerfile and Helm chart (fail on HIGH/CRITICAL)
+        run: |
+          docker run --rm -v "$PWD:/src" aquasec/trivy:0.76.1 config --quiet --exit-code 1 \
+            --severity HIGH,CRITICAL /src/Dockerfile
+          docker run --rm -v "$PWD:/src" aquasec/trivy:0.76.1 config --quiet --exit-code 1 \
+            --severity HIGH,CRITICAL /src/deploy/helm
+
+  image:
+    name: Trivy image scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t incident-pulse:scan .
+      - name: Report HIGH and CRITICAL CVEs
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.1 image --quiet \
+            --severity HIGH,CRITICAL incident-pulse:scan
+      - name: Fail on fixable CRITICAL CVEs
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.1 image --quiet \
+            --exit-code 1 --ignore-unfixed --severity CRITICAL incident-pulse:scan

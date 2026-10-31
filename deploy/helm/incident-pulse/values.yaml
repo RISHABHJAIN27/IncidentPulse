@@ -1,0 +1,108 @@
+# Default values for incident-pulse. Override per environment:
+#   values-kind.yaml  local kind cluster with DynamoDB Local
+#   values-eks.yaml   AWS EKS with real DynamoDB and IRSA
+
+replicaCount: 2
+
+image:
+  repository: incident-pulse
+  tag: local
+  pullPolicy: IfNotPresent
+
+# Application settings (non-secret).
+app:
+  environment: production
+  awsRegion: us-east-1
+  tableName: incidents
+  # Set only when talking to DynamoDB Local; leave empty for real DynamoDB.
+  dynamodbEndpoint: ""
+  otel:
+    enabled: false
+    endpoint: http://otel-collector:4317
+
+# Credentials for DynamoDB Local only. On AWS, leave this disabled and use IRSA
+# (serviceAccount.annotations) so no static keys ever exist in the cluster.
+localCredentials:
+  enabled: false
+  accessKeyId: local
+  secretAccessKey: local
+
+serviceAccount:
+  create: true
+  # EKS: eks.amazonaws.com/role-arn: arn:aws:iam::<account>:role/incident-pulse
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  nodePort: null
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: /metrics
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Liveness = the process is up (/health). Readiness = it can reach DynamoDB (/ready).
+# Keeping them separate means a database outage takes pods out of the Service
+# instead of restart-looping them (docs/failure-mode-analysis.md, row 5).
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readiness:
+    path: /ready
+    initialDelaySeconds: 3
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 2
+
+# Give the Service time to drop a terminating pod before it stops accepting
+# requests, so rollouts and pod deletions do not drop in-flight traffic.
+preStopSleepSeconds: 5
+terminationGracePeriodSeconds: 30
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Spread replicas across nodes so one node failure cannot take the service down.
+topologySpread:
+  enabled: true
+  maxSkew: 1
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# In-cluster DynamoDB Local for development and CI. Never enable in production.
+dynamodbLocal:
+  enabled: false
+  image: amazon/dynamodb-local:3.3.2
+  port: 8000

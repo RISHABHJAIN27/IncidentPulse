@@ -1,0 +1,4 @@
+# Known false positives. Each line is a finding fingerprint (commit:file:rule:line).
+# Fake AWS key used to test that the triage guardrails block secret-like values.
+757eadb844d198c583569436bf4218e76ed2c2c0:triage/tests/test_guardrails.py:aws-access-token:48
+triage/tests/test_guardrails.py:aws-access-token:48
